@@ -5,8 +5,9 @@ import numpy as np
 import requests
 import time
 
-# API-nøkkel fra Streamlit Cloud eller lokal secrets.toml
+# 🔐 Henter Alpha Vantage-nøkkel fra secrets
 ALPHA_VANTAGE_KEY = st.secrets["ALPHA_VANTAGE_KEY"]
+
 
 def get_alpha_vantage_data(ticker):
     url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ALPHA_VANTAGE_KEY}"
@@ -14,6 +15,7 @@ def get_alpha_vantage_data(ticker):
     if response.status_code == 200:
         return response.json()
     return {}
+
 
 def analyze_ticker(ticker):
     data = {"Ticker": ticker}
@@ -54,38 +56,43 @@ def analyze_ticker(ticker):
 
     return data
 
-# ---------- Streamlit UI ----------
 
-st.title("📈 Buffett-analyse av aksjer")
-st.markdown("Skriv inn opptil 10 aksjer separert med komma (f.eks. `AAPL, MSFT, HEX`). Kortnavn uten punktum får automatisk `.OL` lagt til for Oslo Børs.")
+# ---------------------- UI ----------------------
 
-# Tekstinput
-ticker_input = st.text_input("Skriv inn tickere her:")
+st.title("📈 Buffett-analyse")
+st.markdown(
+    """
+    Skriv inn inntil 10 tickere, separert med komma (f.eks. `AAPL, MSFT, EQNR.OL`).  
+    Du må inkludere korrekt suffiks selv, for eksempel:
+
+    - `.OL` for Oslo Børs (f.eks. `HEX.OL`)
+    - `.ST` for Stockholm (f.eks. `ERIC-B.ST`)
+    - `.HE` for Helsinki (f.eks. `NOKIA.HE`)
+    """
+)
+
+ticker_input = st.text_input("🎯 Tickere (separert med komma):")
 
 if ticker_input:
-    tickers = []
-    for t in ticker_input.split(","):
-        clean = t.strip().upper()
-        if "." not in clean and len(clean) <= 5:
-            clean += ".OL"  # antar norsk ticker hvis kort og uten punktum
-        tickers.append(clean)
+    tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+    tickers = tickers[:10]  # maks 10
 
-    tickers = tickers[:10]  # maks 10 tickere
-    st.info(f"📊 Analyserer {len(tickers)} selskaper ...")
-
+    st.info(f"Starter analyse av {len(tickers)} selskaper ...")
     results = []
+
     for ticker in tickers:
-        with st.spinner(f"Analyserer {ticker} ..."):
+        with st.spinner(f"🔎 Analyserer {ticker}..."):
             results.append(analyze_ticker(ticker))
-            time.sleep(12)  # for å unngå Alpha Vantage rate limit
+            time.sleep(12)  # Alpha Vantage API-begrensning
 
     df_result = pd.DataFrame(results)
     st.success("✅ Ferdig!")
+
     st.dataframe(df_result)
 
-    # Last ned som Excel
+    # Nedlasting som Excel
     output_file = "buffett_resultat.xlsx"
     df_result.to_excel(output_file, index=False)
 
     with open(output_file, "rb") as f:
-        st.download_button("📥 Last ned resultatene", f, file_name="buffett_resultat.xlsx")
+        st.download_button("📥 Last ned Excel-fil", f, file_name="buffett_resultat.xlsx")
