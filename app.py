@@ -4,11 +4,12 @@ import yfinance as yf
 import numpy as np
 import requests
 import time
+import matplotlib.pyplot as plt
 
-# 🔐 Henter Alpha Vantage-nøkkel fra secrets
+# 🔐 Alpha Vantage API-nøkkel (fra secrets.toml eller Streamlit Cloud)
 ALPHA_VANTAGE_KEY = st.secrets["ALPHA_VANTAGE_KEY"]
 
-
+# -------- Hent data --------
 def get_alpha_vantage_data(ticker):
     url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ALPHA_VANTAGE_KEY}"
     response = requests.get(url)
@@ -16,12 +17,14 @@ def get_alpha_vantage_data(ticker):
         return response.json()
     return {}
 
-
 def analyze_ticker(ticker):
     data = {"Ticker": ticker}
     try:
         yf_ticker = yf.Ticker(ticker)
         info = yf_ticker.info
+
+        if not info or "shortName" not in info:
+            raise ValueError("Ticker ikke funnet eller data utilgjengelig.")
 
         pe = info.get("trailingPE", np.nan)
         pb = info.get("priceToBook", np.nan)
@@ -52,47 +55,84 @@ def analyze_ticker(ticker):
         })
 
     except Exception as e:
-        data["Error"] = str(e)
+        data.update({
+            "P/E": "N/A",
+            "P/B": "N/A",
+            "ROE (%)": "N/A",
+            "EPS growth 5y (%)": "N/A",
+            "Debt/Equity": "N/A",
+            "Op. Margin (%)": "N/A",
+            "Buffett Score (0–6)": 0,
+            "Error": str(e)
+        })
 
     return data
 
+# -------- Fargekodingsfunksjon --------
+def color_score(val):
+    if isinstance(val, int):
+        if val == 6:
+            return "background-color: #2ECC71; color: black;"  # grønn
+        elif val == 5:
+            return "background-color: #58D68D; color: black;"
+        elif val == 4:
+            return "background-color: #ABEBC6; color: black;"
+        elif val == 3:
+            return "background-color: #F4D03F; color: black;"  # gul
+        elif val == 2:
+            return "background-color: #F5B041; color: black;"
+        elif val == 1:
+            return "background-color: #EB984E; color: black;"
+        elif val == 0:
+            return "background-color: #E74C3C; color: white;"  # rød
+    return ""
 
-# ---------------------- UI ----------------------
+# -------- Streamlit UI --------
+st.set_page_config(page_title="Buffett-analyse", layout="centered")
+st.title("📈 Buffett Score – Fundamentalanalyse av aksjer")
 
-st.title("📈 Buffett-analyse")
-st.markdown(
-    """
-    Skriv inn inntil 10 tickere, separert med komma (f.eks. `AAPL, MSFT, EQNR.OL`).  
-    Du må inkludere korrekt suffiks selv, for eksempel:
+st.markdown("""
+Skriv inn inntil 10 tickere, separert med komma (f.eks. `AAPL, MSFT, HEX.OL`).  
+**Du må inkludere korrekt suffiks** selv, for eksempel:
+- `.OL` for Oslo Børs (f.eks. `EQNR.OL`)
+- `.ST` for Stockholm (f.eks. `ERIC-B.ST`)
+- `.HE` for Helsinki (f.eks. `NOKIA.HE`)
+""")
 
-    - `.OL` for Oslo Børs (f.eks. `HEX.OL`)
-    - `.ST` for Stockholm (f.eks. `ERIC-B.ST`)
-    - `.HE` for Helsinki (f.eks. `NOKIA.HE`)
-    """
-)
-
-ticker_input = st.text_input("🎯 Tickere (separert med komma):")
+ticker_input = st.text_input("🎯 Tickere:")
 
 if ticker_input:
     tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
-    tickers = tickers[:10]  # maks 10
+    tickers = tickers[:10]
 
-    st.info(f"Starter analyse av {len(tickers)} selskaper ...")
+    st.info(f"🔍 Analyserer {len(tickers)} selskaper ...")
     results = []
 
     for ticker in tickers:
-        with st.spinner(f"🔎 Analyserer {ticker}..."):
+        with st.spinner(f"🔎 Analyserer {ticker} ..."):
             results.append(analyze_ticker(ticker))
-            time.sleep(12)  # Alpha Vantage API-begrensning
+            time.sleep(12)  # Alpha Vantage rate limit
 
-    df_result = pd.DataFrame(results)
+    df = pd.DataFrame(results)
+
     st.success("✅ Ferdig!")
 
-    st.dataframe(df_result)
+    # 🎨 Fargekoding
+    styled_df = df.style.applymap(color_score, subset=["Buffett Score (0–6)"])
+    st.dataframe(styled_df, use_container_width=True)
 
-    # Nedlasting som Excel
-    output_file = "buffett_resultat.xlsx"
-    df_result.to_excel(output_file, index=False)
+    # 📊 Graf – toppscorede aksjer
+    valid_scores = df[df["Buffett Score (0–6)"] > 0]
+    if not valid_scores.empty:
+        chart_data = valid_scores[["Ticker", "Buffett Score (0–6)"]].sort_values(by="Buffett Score (0–6)", ascending=False)
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.barh(chart_data["Ticker"], chart_data["Buffett Score (0–6)"], color="#2E86C1")
+        ax.invert_yaxis()
+        ax.set_xlabel("Buffett Score")
+        ax.set_title("🔝 Toppscorede aksjer")
+        st.pyplot(fig)
 
-    with open(output_file, "rb") as f:
-        st.download_button("📥 Last ned Excel-fil", f, file_name="buffett_resultat.xlsx")
+    # 📥 Nedlasting
+    df.to_excel("buffett_resultat.xlsx", index=False)
+    with open("buffett_resultat.xlsx", "rb") as f:
+        st.download_button("📥 Last ned Excel", f, file_name="buffett_resultat.xlsx")
