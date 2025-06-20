@@ -60,7 +60,7 @@ def analyze_ticker(ticker):
 # ---------- Streamlit UI ----------
 
 st.title("📈 Buffett-style aksjeanalyse")
-st.markdown("Skriv inn opptil 10 tickere, separert med komma (f.eks. AAPL, MSFT, GOOG).")
+st.markdown("Hei broder! Her kan du skrive inn Tickeren til det selskapet du vil undersøke. Programmet gir en skåre fra 0-6. 0 betyr at aksjen ikke tilfredsstiller Buffet sine kriterier for kjøp. 6 Betyr at aksjen møter alle kriteriene. Skriv inn opptil 10 tickere, separert med komma (f.eks. AAPL, MSFT, GOOG).")
 
 ticker_input = st.text_input(
     "Skriv tickere her",
