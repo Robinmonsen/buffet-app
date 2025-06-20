@@ -5,36 +5,21 @@ import numpy as np
 import requests
 import time
 
-# Alpha Vantage API-nøkkel fra Streamlit secrets
-ALPHA_VANTAGE_KEY = st.secrets["ALPHA_VANTAGE_KEY"]
-
-# 📋 Liste over kjente aksjer i Norden
-aksjeliste = {
-    "Norge": {
-        "HEXAGON COMPOSITES": "HEX.OL",
-        "DNB BANK": "DNB.OL",
-        "EQUINOR": "EQNR.OL",
-        "ORKLA": "ORK.OL",
-        "YARA": "YAR.OL",
-        "TOMRA": "TOM.OL",
-        "AKER BP": "AKRBP.OL",
-        "MOWI": "MOWI.OL",
-        "SALMAR": "SALM.OL",
-        "KAHOOT": "KAHOT.OL"
-    },
-    "Sverige": {
-        "H&M": "HM-B.ST",
-        "ELECTROLUX": "ELUX-B.ST",
-        "VOLVO": "VOLV-B.ST",
-        "ERICSSON": "ERIC-B.ST",
-        "SANDVIK": "SAND.ST"
-    },
-    "Finland": {
-        "NOKIA": "NOKIA.HE",
-        "KESKO": "KESKOB.HE",
-        "UPM": "UPM.HE"
-    }
+ALPHA_VANTAGE_KEY = "LY5GS1QIW4TQENBT"  # ← erstatt med secrets i produksjon
+# Liste over kjente aksjer på Oslo Børs
+norske_aksjer = {
+    "HEXAGON COMPOSITES": "HEX.OL",
+    "DNB BANK": "DNB.OL",
+    "EQUINOR": "EQNR.OL",
+    "ORKLA": "ORK.OL",
+    "YARA": "YAR.OL",
+    "TOMRA": "TOM.OL",
+    "AKER BP": "AKRBP.OL",
+    "MOWI": "MOWI.OL",
+    "SALMAR": "SALM.OL",
+    "KAHOOT": "KAHOT.OL"
 }
+
 
 def get_alpha_vantage_data(ticker):
     url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey={ALPHA_VANTAGE_KEY}"
@@ -42,6 +27,7 @@ def get_alpha_vantage_data(ticker):
     if response.status_code == 200:
         return response.json()
     return {}
+
 
 def analyze_ticker(ticker):
     data = {"Ticker": ticker}
@@ -52,7 +38,8 @@ def analyze_ticker(ticker):
         pe = info.get("trailingPE", np.nan)
         pb = info.get("priceToBook", np.nan)
         roe = info.get("returnOnEquity", np.nan)
-        if roe is not None: roe *= 100
+        if roe is not None:
+            roe *= 100
         dte = info.get("debtToEquity", np.nan)
 
         av_data = get_alpha_vantage_data(ticker)
@@ -82,55 +69,41 @@ def analyze_ticker(ticker):
 
     return data
 
-# ----------------- Streamlit UI -------------------
 
-st.title("📈 Buffett Score – Fundamental aksjeanalyse")
-st.markdown("Velg inntil 10 nordiske aksjer fra listen eller skriv inn egne tickere manuelt (f.eks. AAPL, MSFT).")
+# ---------- Streamlit UI ----------
 
-# Rullegardin med grupperte aksjer
-valg_norske = st.multiselect("🇳🇴 Norske aksjer", list(aksjeliste["Norge"].keys()))
-valg_svenske = st.multiselect("🇸🇪 Svenske aksjer", list(aksjeliste["Sverige"].keys()))
-valg_finske = st.multiselect("🇫🇮 Finske aksjer", list(aksjeliste["Finland"].keys()))
+st.title("📈 Buffett-style aksjeanalyse")
+st.markdown("Hei broder! Her kan du skrive inn Tickeren til det selskapet du vil undersøke. Programmet gir en skåre fra 0-6. 0 betyr at aksjen ikke tilfredsstiller Buffet sine kriterier for kjøp. 6 Betyr at aksjen møter alle kriteriene. Skriv inn opptil 10 tickere, separert med komma (f.eks. AAPL, MSFT, GOOG).")
 
-# Manuell tekstinput
-manuell_input = st.text_input("✍️ Evt. egne tickere (kommaseparert, f.eks. AAPL, TSLA, AMZN)")
+valg = st.multiselect(
+    "Velg inntil 10 aksjer fra listen under (eller skriv egne)",
+    options=list(norske_aksjer.keys()),
+    help="Du kan også legge inn manuelle tickere nedenfor"
+)
 
-# Kombiner valgte tickere
-tickers = []
+manuell_input = st.text_input(
+    "Evt. legg til egne tickere manuelt (kommaseparert, eks: AAPL, TSLA)"
+)
 
-for navn in valg_norske:
-    tickers.append(aksjeliste["Norge"][navn])
-for navn in valg_svenske:
-    tickers.append(aksjeliste["Sverige"][navn])
-for navn in valg_finske:
-    tickers.append(aksjeliste["Finland"][navn])
+if ticker_input:
+    tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+    if len(tickers) > 10:
+        st.warning("⚠️ Maks 10 tickere tillatt.")
+    else:
+        st.info("Starter analyse ...")
+        results = []
+        for ticker in tickers:
+            with st.spinner(f"Analyserer {ticker}..."):
+                results.append(analyze_ticker(ticker))
+                time.sleep(12)  # pga. Alpha Vantage API-rate limit
 
-if manuell_input:
-    for t in manuell_input.split(","):
-        clean = t.strip().upper()
-        if "." not in clean and len(clean) <= 5:
-            clean += ".OL"  # antar Oslo Børs hvis kort og uten suffix
-        tickers.append(clean)
+        df_result = pd.DataFrame(results)
+        st.success("✅ Ferdig!")
+        st.dataframe(df_result)
 
-tickers = tickers[:10]  # maks 10 tickere
+        # Last ned resultat
+        output_file = "analyse_resultat.xlsx"
+        df_result.to_excel(output_file, index=False)
 
-# ----------------------------------------
-
-if tickers:
-    st.info(f"📊 Analyserer {len(tickers)} selskaper ...")
-    results = []
-    for ticker in tickers:
-        with st.spinner(f"Analyserer {ticker} ..."):
-            results.append(analyze_ticker(ticker))
-            time.sleep(12)  # for å unngå API-rate limit
-    df_result = pd.DataFrame(results)
-
-    st.success("✅ Analyse ferdig!")
-    st.dataframe(df_result)
-
-    # Last ned som Excel
-    output_file = "buffett_resultat.xlsx"
-    df_result.to_excel(output_file, index=False)
-
-    with open(output_file, "rb") as f:
-        st.download_button("📥 Last ned som Excel", f, file_name="buffett_resultat.xlsx")
+        with open(output_file, "rb") as f:
+            st.download_button("📥 Last ned resultatene", f, file_name="analyse.xlsx")
